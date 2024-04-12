@@ -2,6 +2,17 @@
 
 #include "common.h"
 
+#define PROCS_MAX 8     // max process
+#define PROC_UNUSED 0   // unused process management struct
+#define PROC_RUNNABLE 1 // executable process
+
+struct process {
+    int pid;             // process id
+    int state;           // process state
+    vaddr_t sp;          // stack pointer at context switch
+    uint8_t stack[8192]; // kernel stack
+};
+
 struct sbiret {
     long error;
     long value;
