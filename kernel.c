@@ -5,6 +5,8 @@ extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
 
 struct process procs[PROCS_MAX];
+struct process* current_proc;
+struct process* idle_proc;
 
 paddr_t alloc_pages(uint32_t n) {
     static paddr_t next_paddr = (paddr_t)__free_ram;
@@ -149,7 +151,7 @@ __attribute__((naked)) void switch_context(uint32_t* prev_sp, uint32_t* next_sp)
 }
 
 struct process* create_process(uint32_t pc) {
-    // search for free process struct
+    // Search for free process struct
     struct process* proc = NULL;
     int i;
     for (i = 0; i < PROCS_MAX; i++) {
@@ -162,7 +164,7 @@ struct process* create_process(uint32_t pc) {
     if (!proc)
         PANIC("no free process slots");
 
-    // put callee saved registers on the stack so that switch_context can return
+    // Put callee saved registers on the stack so that switch_context can return
     uint32_t* sp = (uint32_t*)&proc->stack[sizeof(proc->stack)];
     *--sp = 0;            // s11
     *--sp = 0;            // s10
@@ -178,12 +180,34 @@ struct process* create_process(uint32_t pc) {
     *--sp = 0;            // s0
     *--sp = (uint32_t)pc; // ra
 
-    // initialize process struct
+    // Initialize process struct
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
     proc->sp = (uint32_t)sp;
     return proc;
 };
+
+void yield(void) {
+    // Search for executable process
+    struct process* next = idle_proc;
+    for (int i = 0; i < PROCS_MAX; i++) {
+        struct process* proc = &procs[(current_proc->pid + i) % PROCS_MAX];
+        if (proc->state == PROC_RUNNABLE && proc->pid > 0) {
+            next = proc;
+            break;
+        }
+    }
+
+    // There is no executable process other than the currently running process.
+    // Go back and continue processing.
+    if (next == current_proc)
+        return;
+
+    // Switch context.
+    struct process* prev = current_proc;
+    current_proc = next;
+    switch_context(&prev->sp, &next->sp);
+}
 
 void handle_trap(struct trap_frame* f) {
     uint32_t scause = READ_CSR(scause);
@@ -203,7 +227,8 @@ void proc_a_entry(void) {
     printf("starting process A\n");
     while (1) {
         putchar('A');
-        switch_context(&proc_a->sp, &proc_b->sp);
+        yield();
+
         for (int i = 0; i < 30000000; i++) {
             __asm__ __volatile__("nop");
         }
@@ -215,7 +240,8 @@ void proc_b_entry(void) {
     printf("starting process B\n");
     while (1) {
         putchar('B');
-        switch_context(&proc_b->sp, &proc_a->sp);
+        yield();
+
         for (int i = 0; i < 30000000; i++) {
             __asm__ __volatile__("nop");
         }
@@ -224,21 +250,20 @@ void proc_b_entry(void) {
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t)__bss_end - (size_t)__bss);
-    printf("\n\nHello %s\n", "Loxloos!");
+    printf("\n\nHello %s\n\n", "Loxloos!");
 
-    paddr_t paddr0 = alloc_pages(2);
-    paddr_t paddr1 = alloc_pages(1);
-    printf("alloc_pages test: paddr0=%x\n", paddr0);
-    printf("alloc_pages test: paddr1=%x\n", paddr1);
+    WRITE_CSR(stvec, (uint32_t)kernel_entry);
+
+    idle_proc = create_process((uint32_t)NULL);
+    idle_proc->pid = -1; // idle process
+    current_proc = idle_proc;
 
     proc_a = create_process((uint32_t)proc_a_entry);
     proc_b = create_process((uint32_t)proc_b_entry);
-    proc_a_entry();
 
-    PANIC("booted!");
+    yield();
+    PANIC("switched to idle process");
 
-    WRITE_CSR(stvec, (uint32_t)kernel_entry);
-    __asm__ __volatile__("unimp"); // 無効な命令
     for (;;) {
         __asm__ __volatile__("wfi");
     }
