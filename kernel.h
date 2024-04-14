@@ -5,12 +5,19 @@
 #define PROCS_MAX 8     // max process
 #define PROC_UNUSED 0   // unused process management struct
 #define PROC_RUNNABLE 1 // executable process
+#define SATP_SV32 (1u << 31)
+#define PAGE_V (1 << 0) // enable bit
+#define PAGE_R (1 << 1) // readable
+#define PAGE_W (1 << 2) // writable
+#define PAGE_X (1 << 3) // executable
+#define PAGE_U (1 << 4) // user accessible
 
 struct process {
-    int pid;             // process id
-    int state;           // process state
-    vaddr_t sp;          // stack pointer at context switch
-    uint8_t stack[8192]; // kernel stack
+    int pid;              // process id
+    int state;            // process state
+    vaddr_t sp;           // stack pointer at context switch
+    uint32_t* page_table; // first level page table
+    uint8_t stack[8192];  // kernel stack
 };
 
 struct sbiret {
