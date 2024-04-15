@@ -1,7 +1,5 @@
 #include "common.h"
 
-void putchar(char ch);
-
 void* memset(void* buf, char c, size_t n) {
     uint8_t* p = (uint8_t*)buf;
     while (n--)
@@ -35,6 +33,8 @@ int strcmp(const char* s1, const char* s2) {
 
     return *(unsigned char*)s1 - *(unsigned char*)s2;
 }
+
+void putchar(char ch);
 
 void printf(const char* fmt, ...) {
     va_list vargs;

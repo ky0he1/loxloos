@@ -23,6 +23,6 @@ SECTIONS {
         . += 64 * 1024; /* 64KB */
         __stack_top = .;
 
-        ASSERT(. < 0x18000000, "too large executable");
+       ASSERT(. < 0x1800000, "too large executable");
     }
 }

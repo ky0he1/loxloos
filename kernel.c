@@ -66,13 +66,17 @@ void putchar(char ch) {
     sbi_call(ch, 0, 0, 0, 0, 0, 0, 1 /* Console Putchar */);
 }
 
+long getchar(void) {
+    struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2 /* Console Getchar */);
+    return ret.error;
+}
+
 __attribute__((naked)) __attribute__((aligned(4))) void kernel_entry(void) {
     __asm__ __volatile__(
         // Get sscratch from kernel stack for running process.
         // tmp = sp; sp = sscratch; sscratch = tmp;
         "csrrw sp, sscratch, sp\n"
 
-        "csrw sscratch, sp\n"
         "addi sp, sp, -4 * 31\n"
         "sw ra, 4 * 0(sp)\n"
         "sw gp, 4 * 1(sp)\n"
@@ -150,7 +154,7 @@ __attribute__((naked)) __attribute__((aligned(4))) void kernel_entry(void) {
         "sret\n");
 }
 
-void user_entry(void) {
+__attribute__((naked)) void user_entry(void) {
     __asm__ __volatile__("csrw sepc, %[sepc]\n"
                          "csrw sstatus, %[sstatus]\n"
                          "sret\n"
@@ -275,43 +279,45 @@ void yield(void) {
     switch_context(&prev->sp, &next->sp);
 }
 
+void handle_syscall(struct trap_frame* f) {
+    switch (f->a3) {
+        case SYS_PUTCHAR:
+            putchar(f->a0);
+            break;
+        case SYS_GETCHAR:
+            while (1) {
+                long ch = getchar();
+                if (ch >= 0) {
+                    f->a0 = ch;
+                    break;
+                }
+
+                yield();
+            }
+            break;
+        case SYS_EXIT:
+            printf("process %d exited\n", current_proc->pid);
+            current_proc->state = PROC_EXITED;
+            yield();
+            PANIC("unreachable");
+        default:
+            PANIC("unknown syscall a3=%x", f->a3);
+    }
+}
+
 void handle_trap(struct trap_frame* f) {
     uint32_t scause = READ_CSR(scause);
     uint32_t stval = READ_CSR(stval);
     uint32_t user_pc = READ_CSR(sepc);
 
-    PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
-}
-
-// a process struct
-struct process* proc_a;
-// b process struct
-struct process* proc_b;
-
-// a process entry
-void proc_a_entry(void) {
-    printf("starting process A\n");
-    while (1) {
-        putchar('A');
-        yield();
-
-        for (int i = 0; i < 30000000; i++) {
-            __asm__ __volatile__("nop");
-        }
+    if (scause == SCAUSE_ECALL) {
+        handle_syscall(f);
+        user_pc += 4;
+    } else {
+        PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
     }
-}
 
-// b process entry
-void proc_b_entry(void) {
-    printf("starting process B\n");
-    while (1) {
-        putchar('B');
-        yield();
-
-        for (int i = 0; i < 30000000; i++) {
-            __asm__ __volatile__("nop");
-        }
-    }
+    WRITE_CSR(sepc, user_pc);
 }
 
 void kernel_main(void) {
