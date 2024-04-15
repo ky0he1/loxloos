@@ -6,11 +6,13 @@
 #define PROC_UNUSED 0   // unused process management struct
 #define PROC_RUNNABLE 1 // executable process
 #define SATP_SV32 (1u << 31)
-#define PAGE_V (1 << 0) // enable bit
-#define PAGE_R (1 << 1) // readable
-#define PAGE_W (1 << 2) // writable
-#define PAGE_X (1 << 3) // executable
-#define PAGE_U (1 << 4) // user accessible
+#define SSTATUS_SPIE (1 << 5)
+#define PAGE_V (1 << 0)      // enable bit
+#define PAGE_R (1 << 1)      // readable
+#define PAGE_W (1 << 2)      // writable
+#define PAGE_X (1 << 3)      // executable
+#define PAGE_U (1 << 4)      // user accessible
+#define USER_BASE 0x10000000 // user space
 
 struct process {
     int pid;              // process id

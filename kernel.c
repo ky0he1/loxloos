@@ -5,6 +5,7 @@
 extern char __kernel_base[];
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
+extern char _binary_shell_bin_start[], _binary_shell_bin_size[];
 
 struct process procs[PROCS_MAX];
 struct process* current_proc;
@@ -149,6 +150,14 @@ __attribute__((naked)) __attribute__((aligned(4))) void kernel_entry(void) {
         "sret\n");
 }
 
+void user_entry(void) {
+    __asm__ __volatile__("csrw sepc, %[sepc]\n"
+                         "csrw sstatus, %[sstatus]\n"
+                         "sret\n"
+                         :
+                         : [sepc] "r"(USER_BASE), [sstatus] "r"(SSTATUS_SPIE));
+}
+
 __attribute__((naked)) void switch_context(uint32_t* prev_sp, uint32_t* next_sp) {
     __asm__ __volatile__("addi sp, sp, -13 * 4\n"
                          "sw ra, 0 * 4(sp)\n"
@@ -183,7 +192,7 @@ __attribute__((naked)) void switch_context(uint32_t* prev_sp, uint32_t* next_sp)
                          "ret\n");
 }
 
-struct process* create_process(uint32_t pc) {
+struct process* create_process(const void* image, size_t image_size) {
     // Search for free process struct
     struct process* proc = NULL;
     int i;
@@ -199,19 +208,19 @@ struct process* create_process(uint32_t pc) {
 
     // Put callee saved registers on the stack so that switch_context can return
     uint32_t* sp = (uint32_t*)&proc->stack[sizeof(proc->stack)];
-    *--sp = 0;            // s11
-    *--sp = 0;            // s10
-    *--sp = 0;            // s9
-    *--sp = 0;            // s8
-    *--sp = 0;            // s7
-    *--sp = 0;            // s6
-    *--sp = 0;            // s5
-    *--sp = 0;            // s4
-    *--sp = 0;            // s3
-    *--sp = 0;            // s2
-    *--sp = 0;            // s1
-    *--sp = 0;            // s0
-    *--sp = (uint32_t)pc; // ra
+    *--sp = 0;                    // s11
+    *--sp = 0;                    // s10
+    *--sp = 0;                    // s9
+    *--sp = 0;                    // s8
+    *--sp = 0;                    // s7
+    *--sp = 0;                    // s6
+    *--sp = 0;                    // s5
+    *--sp = 0;                    // s4
+    *--sp = 0;                    // s3
+    *--sp = 0;                    // s2
+    *--sp = 0;                    // s1
+    *--sp = 0;                    // s0
+    *--sp = (uint32_t)user_entry; // ra
 
     uint32_t* page_table = (uint32_t*)alloc_pages(1);
 
@@ -219,6 +228,13 @@ struct process* create_process(uint32_t pc) {
     for (paddr_t paddr = (paddr_t)__kernel_base; paddr < (paddr_t)__free_ram_end;
          paddr += PAGE_SIZE) {
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+    }
+
+    // Map user space.
+    for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+        paddr_t page = alloc_pages(1);
+        memcpy((void*)page, image + off, PAGE_SIZE);
+        map_page(page_table, USER_BASE + off, page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
     }
 
     // Initialize process struct
@@ -304,12 +320,11 @@ void kernel_main(void) {
 
     WRITE_CSR(stvec, (uint32_t)kernel_entry);
 
-    idle_proc = create_process((uint32_t)NULL);
+    idle_proc = create_process(NULL, 0);
     idle_proc->pid = -1; // idle process
     current_proc = idle_proc;
 
-    proc_a = create_process((uint32_t)proc_a_entry);
-    proc_b = create_process((uint32_t)proc_b_entry);
+    create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_size);
 
     yield();
     PANIC("switched to idle process");
